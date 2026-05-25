@@ -1,0 +1,456 @@
+{
+  "datasets": [
+    {
+      "name": "top_rated_movies",
+      "displayName": "Top Rated Movies",
+      "queryLines": [
+        "SELECT\n",
+        "  title,\n",
+        "  release_year,\n",
+        "  vote_average AS rating,\n",
+        "  vote_count AS votes,\n",
+        "  popularity\n",
+        "FROM\n",
+        "  workspace.default.movies_silver\n",
+        "WHERE\n",
+        "  vote_count >= 500\n",
+        "ORDER BY\n",
+        "  vote_average DESC,\n",
+        "  vote_count DESC\n",
+        "LIMIT 25"
+      ]
+    },
+    {
+      "name": "top_genres_by_rating",
+      "displayName": "Top Genres by Rating",
+      "queryLines": [
+        "WITH movies_exploded AS (\n",
+        "  SELECT\n",
+        "    movie_id,\n",
+        "    vote_average,\n",
+        "    vote_count,\n",
+        "    CAST(genre_id_exploded AS INT) AS genre_id\n",
+        "  FROM\n",
+        "    workspace.default.movies_silver\n",
+        "      CROSS JOIN LATERAL explode(from_json(genre_ids, 'array<int>')) AS genre_table(\n",
+        "        genre_id_exploded\n",
+        "      )\n",
+        "  WHERE\n",
+        "    vote_count >= 50\n",
+        ")\n",
+        "SELECT\n",
+        "  g.genre_name,\n",
+        "  COUNT(DISTINCT m.movie_id) AS movie_count,\n",
+        "  AVG(m.vote_average) AS avg_rating\n",
+        "FROM\n",
+        "  movies_exploded m\n",
+        "    INNER JOIN workspace.default.movies_bronze_genres g\n",
+        "      ON m.genre_id = g.genre_id\n",
+        "GROUP BY\n",
+        "  g.genre_name\n",
+        "HAVING\n",
+        "  COUNT(DISTINCT m.movie_id) >= 50\n",
+        "ORDER BY\n",
+        "  avg_rating DESC\n",
+        "LIMIT 15"
+      ]
+    },
+    {
+      "name": "language_diversity",
+      "displayName": "Language Diversity",
+      "queryLines": [
+        "SELECT\n",
+        "  original_language,\n",
+        "  COUNT(*) AS movie_count,\n",
+        "  AVG(vote_average) AS avg_rating\n",
+        "FROM\n",
+        "  workspace.default.movies_silver\n",
+        "WHERE\n",
+        "  release_year >= 2010\n",
+        "  AND vote_count >= 20\n",
+        "GROUP BY\n",
+        "  original_language\n",
+        "HAVING\n",
+        "  COUNT(*) >= 10\n",
+        "ORDER BY\n",
+        "  movie_count DESC\n",
+        "LIMIT 15"
+      ]
+    },
+    {
+      "name": "decade_trends",
+      "displayName": "Decade Trends",
+      "queryLines": [
+        "SELECT\n",
+        "  release_decade,\n",
+        "  total_movies,\n",
+        "  avg_rating\n",
+        "FROM\n",
+        "  workspace.default.movies_gold_by_decade\n",
+        "ORDER BY\n",
+        "  release_decade"
+      ]
+    },
+    {
+      "name": "rating_vs_popularity",
+      "displayName": "Rating vs Popularity",
+      "queryLines": [
+        "WITH popularity_buckets AS (\n",
+        "  SELECT\n",
+        "    vote_average,\n",
+        "    CASE\n",
+        "      WHEN popularity < 50 THEN 'Low (<50)'\n",
+        "      WHEN popularity < 150 THEN 'Medium (50-150)'\n",
+        "      WHEN popularity < 300 THEN 'High (150-300)'\n",
+        "      ELSE 'Very High (300+)'\n",
+        "    END AS popularity_tier\n",
+        "  FROM\n",
+        "    workspace.default.movies_silver\n",
+        "  WHERE\n",
+        "    vote_count >= 50\n",
+        ")\n",
+        "SELECT\n",
+        "  popularity_tier,\n",
+        "  COUNT(*) AS movie_count,\n",
+        "  AVG(vote_average) AS avg_rating\n",
+        "FROM\n",
+        "  popularity_buckets\n",
+        "GROUP BY\n",
+        "  popularity_tier\n",
+        "ORDER BY\n",
+        "  CASE popularity_tier\n",
+        "    WHEN 'Low (<50)' THEN 1\n",
+        "    WHEN 'Medium (50-150)' THEN 2\n",
+        "    WHEN 'High (150-300)' THEN 3\n",
+        "    WHEN 'Very High (300+)' THEN 4\n",
+        "  END"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "ebccd372",
+      "displayName": "Page 1",
+      "layout": [
+        {
+          "widget": {
+            "name": "header_text",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Movie Analytics Dashboard\n",
+                "\n",
+                "Insights from ~15-20K movies sourced from TMDB API, organized in a medallion architecture with bronze, silver, and gold layers."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "language_diversity",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "language_diversity",
+                  "fields": [
+                    {
+                      "name": "movie_count",
+                      "expression": "`movie_count`"
+                    },
+                    {
+                      "name": "original_language",
+                      "expression": "`original_language`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Top Languages in Modern Cinema (2010+)",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "movie_count",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact"
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "original_language",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 12,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "top_genres",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "top_genres_by_rating",
+                  "fields": [
+                    {
+                      "name": "genre_name",
+                      "expression": "`genre_name`"
+                    },
+                    {
+                      "name": "avg_rating",
+                      "expression": "`avg_rating`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Top Genres by Average Rating",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "genre_name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "avg_rating",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  },
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "decade_trends",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "decade_trends",
+                  "fields": [
+                    {
+                      "name": "release_decade",
+                      "expression": "`release_decade`"
+                    },
+                    {
+                      "name": "total_movies",
+                      "expression": "`total_movies`"
+                    },
+                    {
+                      "name": "avg_rating",
+                      "expression": "`avg_rating`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Movie Volume and Quality Over Time",
+                "showTitle": true
+              },
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "release_decade",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "primary": {
+                    "fields": [
+                      {
+                        "fieldName": "total_movies",
+                        "displayName": "Total Movies"
+                      }
+                    ],
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "compact"
+                    }
+                  },
+                  "secondary": {
+                    "fields": [
+                      {
+                        "fieldName": "avg_rating",
+                        "displayName": "Avg Rating"
+                      }
+                    ],
+                    "scale": {
+                      "type": "quantitative"
+                    },
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "top_rated_movies",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "top_rated_movies",
+                  "fields": [
+                    {
+                      "name": "title",
+                      "expression": "`title`"
+                    },
+                    {
+                      "name": "release_year",
+                      "expression": "`release_year`"
+                    },
+                    {
+                      "name": "rating",
+                      "expression": "`rating`"
+                    },
+                    {
+                      "name": "votes",
+                      "expression": "`votes`"
+                    },
+                    {
+                      "name": "popularity",
+                      "expression": "`popularity`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "title": "Top 25 Rated Movies (500+ votes)",
+                "showTitle": true
+              },
+              "version": 2,
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "title"
+                  },
+                  {
+                    "fieldName": "release_year"
+                  },
+                  {
+                    "fieldName": "rating",
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "votes",
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "compact"
+                    }
+                  },
+                  {
+                    "fieldName": "popularity",
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 12,
+            "height": 10
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}
